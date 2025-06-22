@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple WebRTC Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 250px;
+        }
+        #logs {
+            height: 300px;
+            overflow-y: scroll;
+            background: #f8f9fa;
+            padding: 10px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-line;
+        }
+    </style>
+</head>
+<body>
+    <h1>FreeSWITCH WebRTC Connection Test</h1>
+    
+    <div class="container">
+        <h3>Connection Test</h3>
+        <div>
+            <label>FreeSWITCH WebSocket URL:</label><br>
+            <input type="text" id="wsUrl" value="ws://localhost:5066" placeholder="ws://your-server:5066">
+        </div>
+        <div>
+            <button onclick="testWebSocket()">Test WebSocket Connection</button>
+            <button onclick="testMedia()">Test Media Access</button>
+            <button onclick="clearLogs()">Clear Logs</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>Test Results</h3>
+        <div id="wsStatus" class="status warning">WebSocket: Not Tested</div>
+        <div id="mediaStatus" class="status warning">Media Access: Not Tested</div>
+        <div id="httpsStatus" class="status warning">HTTPS: Not Checked</div>
+    </div>
+
+    <div class="container">
+        <h3>Detailed Logs</h3>
+        <div id="logs"></div>
+    </div>
+
+    <div class="container">
+        <h3>System Information</h3>
+        <div id="systemInfo"></div>
+    </div>
+
+    <script>
+        let ws = null;
+
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type.toUpperCase();
+            logs.textContent += `[${timestamp}] ${prefix}: ${message}\n`;
+            logs.scrollTop = logs.scrollHeight;
+            console.log(`${prefix}: ${message}`);
+        }
+
+        function updateStatus(elementId, status, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = element.textContent.split(':')[0] + ': ' + status;
+            element.className = `status ${type}`;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+
+        function testWebSocket() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            
+            if (!wsUrl) {
+                log('Please enter WebSocket URL', 'error');
+                return;
+            }
+
+            log(`Testing WebSocket connection to: ${wsUrl}`);
+            updateStatus('wsStatus', 'Connecting...', 'warning');
+
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = function(event) {
+                    log('WebSocket connection opened successfully!', 'success');
+                    updateStatus('wsStatus', 'Connected', 'success');
+                    
+                    // 发送一个简单的测试消息
+                    setTimeout(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send('OPTIONS sip:test@test.com SIP/2.0\r\n\r\n');
+                            log('Sent test SIP OPTIONS message');
+                        }
+                    }, 1000);
+                };
+
+                ws.onmessage = function(event) {
+                    log(`Received message: ${event.data.substring(0, 100)}...`, 'success');
+                };
+
+                ws.onerror = function(error) {
+                    log(`WebSocket error: ${error}`, 'error');
+                    updateStatus('wsStatus', 'Error', 'error');
+                };
+
+                ws.onclose = function(event) {
+                    log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`, 'warning');
+                    updateStatus('wsStatus', 'Disconnected', 'error');
+                };
+
+                // 超时检测
+                setTimeout(() => {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        log('WebSocket connection timeout', 'error');
+                        updateStatus('wsStatus', 'Timeout', 'error');
+                        ws.close();
+                    }
+                }, 10000);
+
+            } catch (error) {
+                log(`Failed to create WebSocket: ${error.message}`, 'error');
+                updateStatus('wsStatus', 'Failed', 'error');
+            }
+        }
+
+        function testMedia() {
+            log('Testing media access (microphone)...');
+            updateStatus('mediaStatus', 'Testing...', 'warning');
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('getUserMedia is not supported in this browser', 'error');
+                updateStatus('mediaStatus', 'Not Supported', 'error');
+                return;
+            }
+
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(function(stream) {
+                    log('Media access granted successfully!', 'success');
+                    updateStatus('mediaStatus', 'Access Granted', 'success');
+                    
+                    // 显示音频设备信息
+                    const audioTracks = stream.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        log(`Audio device: ${audioTracks[0].label}`, 'info');
+                    }
+                    
+                    // 停止流
+                    stream.getTracks().forEach(track => track.stop());
+                })
+                .catch(function(error) {
+                    log(`Media access denied: ${error.message}`, 'error');
+                    updateStatus('mediaStatus', 'Access Denied', 'error');
+                    
+                    if (error.name === 'NotAllowedError') {
+                        log('Solution: Allow microphone access in browser settings', 'info');
+                    } else if (error.name === 'NotSecureError') {
+                        log('Solution: Use HTTPS or localhost', 'info');
+                    }
+                });
+        }
+
+        function checkSystemInfo() {
+            const info = document.getElementById('systemInfo');
+            let htmlContent = '<ul>';
+            
+            htmlContent += `<li><strong>User Agent:</strong> ${navigator.userAgent}</li>`;
+            htmlContent += `<li><strong>Protocol:</strong> ${location.protocol}</li>`;
+            htmlContent += `<li><strong>Host:</strong> ${location.host}</li>`;
+            htmlContent += `<li><strong>WebRTC Support:</strong> ${!!window.RTCPeerConnection}</li>`;
+            htmlContent += `<li><strong>WebSocket Support:</strong> ${!!window.WebSocket}</li>`;
+            htmlContent += `<li><strong>getUserMedia Support:</strong> ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}</li>`;
+            
+            // 检查HTTPS
+            const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            htmlContent += `<li><strong>Secure Context:</strong> ${isSecure}</li>`;
+            
+            if (!isSecure) {
+                updateStatus('httpsStatus', 'Not Secure (may cause issues)', 'error');
+                log('Warning: Not running in secure context. WebRTC may not work properly', 'warning');
+            } else {
+                updateStatus('httpsStatus', 'Secure Context', 'success');
+            }
+            
+            htmlContent += '</ul>';
+            info.innerHTML = htmlContent;
+            
+            log('System information loaded');
+        }
+
+        // 页面加载时运行
+        window.addEventListener('load', function() {
+            log('Simple WebRTC Test Page Loaded');
+            checkSystemInfo();
+            
+            log('=== TROUBLESHOOTING GUIDE ===');
+            log('1. Test WebSocket connection first');
+            log('2. Test media access');
+            log('3. Check FreeSWITCH configuration:');
+            log('   - mod_sofia loaded');
+            log('   - WebSocket binding configured');
+            log('   - User accounts created');
+            log('4. Common FreeSWITCH WebSocket configs:');
+            log('   - ws-binding: :5066 (HTTP)');
+            log('   - wss-binding: :7443 (HTTPS)');
+        });
+    </script>
+</body>
+</html>
