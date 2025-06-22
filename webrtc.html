@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FreeSWITCH WebRTC Softphone</title>
+    <script src="jssip.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 15px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            min-width: 140px;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        
+        .config-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .form-group label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #34495e;
+        }
+        .form-group input, .form-group select {
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+            margin: 5px;
+        }
+        .btn:hover { background: #0056b3; }
+        .btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .btn.success { background: #28a745; }
+        .btn.danger { background: #dc3545; }
+        .btn.warning { background: #ffc107; color: #212529; }
+        
+        .call-interface {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .call-interface.active { display: block; }
+        
+        .call-controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .number-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            max-width: 200px;
+            margin: 20px auto;
+        }
+        .number-pad button {
+            aspect-ratio: 1;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .call-display {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 18px;
+            text-align: center;
+        }
+        
+        .security-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .security-warning h4 {
+            color: #856404;
+            margin: 0 0 10px 0;
+        }
+        
+        #logs {
+            height: 200px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            padding: 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-line;
+        }
+        
+        .audio-controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        audio {
+            margin: 10px;
+        }
+        
+        .troubleshooting {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .config-section {
+                grid-template-columns: 1fr;
+            }
+            .status-bar {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔊 FreeSWITCH WebRTC Softphone</h1>
+        <p>Professional VoIP Client with Enhanced Debugging</p>
+    </div>
+
+    <!-- Security Warning -->
+    <div class="security-warning" id="securityWarning" style="display: none;">
+        <h4>⚠️ Security Notice</h4>
+        <p>You're not using HTTPS. For production use, please:</p>
+        <ul>
+            <li>Use HTTPS/WSS connections</li>
+            <li>Configure proper SSL certificates</li>
+            <li>Or enable Firefox insecure media for testing: <code>about:config</code> → <code>media.devices.insecure.enabled = true</code></li>
+        </ul>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="container">
+        <div class="status-bar">
+            <div id="connectionStatus" class="status disconnected">🔌 Disconnected</div>
+            <div id="registrationStatus" class="status disconnected">📝 Not Registered</div>
+            <div id="callStatus" class="status disconnected">📞 No Active Call</div>
+        </div>
+    </div>
+
+    <!-- Configuration -->
+    <div class="container" id="configSection">
+        <h3>📋 Configuration</h3>
+        <div class="config-section">
+            <div class="form-group">
+                <label for="serverUrl">FreeSWITCH SIP WebSocket URL</label>
+                <input type="text" id="serverUrl" value="ws://192.168.1.25:5066" placeholder="ws://server:5066">
+            </div>
+            <div class="form-group">
+                <label for="extension">Extension/Username</label>
+                <input type="text" id="extension" value="1001" placeholder="1001">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" value="1234" placeholder="Password">
+            </div>
+            <div class="form-group">
+                <label for="domain">SIP Domain</label>
+                <input type="text" id="domain" value="192.168.1.25" placeholder="192.168.1.25">
+            </div>
+            <div class="form-group">
+                <label for="displayName">Display Name (Optional)</label>
+                <input type="text" id="displayName" value="" placeholder="Your Name">
+            </div>
+            <div class="form-group">
+                <label for="realm">Realm (Optional)</label>
+                <input type="text" id="realm" value="" placeholder="Leave empty to use domain">
+            </div>
+        </div>
+        <div style="text-align: center;">
+            <button class="btn" onclick="connect()">🔌 Connect & Register</button>
+            <button class="btn danger" onclick="disconnect()">❌ Disconnect</button>
+            <button class="btn warning" onclick="testWebSocket()">🔧 Test WebSocket</button>
+        </div>
+    </div>
+
+    <!-- Troubleshooting -->
+    <div class="container troubleshooting">
+        <h4>🔧 Protocol Configuration Issue Detected!</h4>
+        <div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin: 10px 0;">
+            <strong>⚠️ IMPORTANT:</strong> Your FreeSWITCH is running Verto (JSON-RPC) but JsSIP needs SIP over WebSocket!
+        </div>
+        
+        <h5>Fix Options:</h5>
+        <ul>
+            <li><strong>Option 1 (Recommended):</strong> Enable SIP WebSocket in FreeSWITCH
+                <br><code>conf/sip_profiles/internal.xml</code> - Add: <code>&lt;param name="ws-binding" value=":5066"/&gt;</code>
+                <br>Then use port 5066 instead of 8081
+            </li>
+            <li><strong>Option 2:</strong> Use a Verto-compatible library instead of JsSIP</li>
+            <li><strong>Option 3:</strong> Use a SIP proxy that converts protocols</li>
+        </ul>
+        
+        <h5>Quick FreeSWITCH Configuration:</h5>
+        <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 12px;">
+# Edit conf/sip_profiles/internal.xml
+# Add this parameter:
+&lt;param name="ws-binding" value=":5066"/&gt;
+
+# Restart FreeSWITCH
+fs_cli -x "reloadxml"
+fs_cli -x "sofia profile internal restart"</pre>
+    </div>
+
+    <!-- Call Interface -->
+    <div class="container call-interface" id="callInterface">
+        <h3>📞 Call Interface</h3>
+        
+        <div class="call-display" id="callDisplay">Ready to make calls</div>
+        
+        <div class="form-group" style="max-width: 300px; margin: 0 auto;">
+            <label for="dialNumber">Number to Call</label>
+            <input type="text" id="dialNumber" value="1002" placeholder="Enter number">
+        </div>
+        
+        <div class="number-pad">
+            <button class="btn" onclick="addDigit('1')">1</button>
+            <button class="btn" onclick="addDigit('2')">2</button>
+            <button class="btn" onclick="addDigit('3')">3</button>
+            <button class="btn" onclick="addDigit('4')">4</button>
+            <button class="btn" onclick="addDigit('5')">5</button>
+            <button class="btn" onclick="addDigit('6')">6</button>
+            <button class="btn" onclick="addDigit('7')">7</button>
+            <button class="btn" onclick="addDigit('8')">8</button>
+            <button class="btn" onclick="addDigit('9')">9</button>
+            <button class="btn" onclick="addDigit('*')">*</button>
+            <button class="btn" onclick="addDigit('0')">0</button>
+            <button class="btn" onclick="addDigit('#')">#</button>
+        </div>
+        
+        <div class="call-controls">
+            <button class="btn success" id="callBtn" onclick="makeCall()">📞 Call</button>
+            <button class="btn danger" id="hangupBtn" onclick="hangup()" disabled>📵 Hang Up</button>
+            <button class="btn warning" id="answerBtn" onclick="answer()" disabled>✅ Answer</button>
+            <button class="btn danger" id="rejectBtn" onclick="reject()" disabled>❌ Reject</button>
+        </div>
+    </div>
+
+    <!-- Audio Controls -->
+    <div class="container">
+        <h3>🔊 Audio</h3>
+        <div class="audio-controls">
+            <audio id="remoteAudio" autoplay playsinline></audio>
+            <audio id="localAudio" muted autoplay playsinline></audio>
+            <div>
+                <button class="btn" onclick="toggleMute()">🎤 Toggle Mute</button>
+                <span id="muteStatus">Unmuted</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="container">
+        <h3>📝 Debug Logs</h3>
+        <button class="btn" onclick="clearLogs()">🗑️ Clear Logs</button>
+        <div id="logs"></div>
+    </div>
+
+    <script>
+        let ua = null;
+        let currentSession = null;
+        let isMuted = false;
+
+        // Check security context
+        function checkSecurity() {
+            const isSecure = location.protocol === 'https:' || 
+                           location.hostname === 'localhost' || 
+                           location.hostname === '127.0.0.1' ||
+                           location.protocol === 'file:';
+            
+            if (!isSecure) {
+                document.getElementById('securityWarning').style.display = 'block';
+                log('⚠️ Running in insecure context - WebRTC may have limitations', 'warning');
+            }
+        }
+
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const icons = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌' };
+            const icon = icons[type] || 'ℹ️';
+            
+            logs.textContent += `[${timestamp}] ${icon} ${message}\n`;
+            logs.scrollTop = logs.scrollHeight;
+            console.log(`${type.toUpperCase()}: ${message}`);
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+
+        function updateStatus(element, text, type) {
+            const statusEl = document.getElementById(element);
+            statusEl.textContent = text;
+            statusEl.className = `status ${type}`;
+        }
+
+        function updateCallDisplay(text) {
+            document.getElementById('callDisplay').textContent = text;
+        }
+
+        function addDigit(digit) {
+            const dialNumber = document.getElementById('dialNumber');
+            dialNumber.value += digit;
+        }
+
+        // Test WebSocket connection
+        function testWebSocket() {
+            const serverUrl = document.getElementById('serverUrl').value;
+            if (!serverUrl) {
+                log('❌ Please enter server URL first', 'error');
+                return;
+            }
+
+            log(`🔧 Testing WebSocket connection to ${serverUrl}...`);
+            
+            try {
+                const testSocket = new WebSocket(serverUrl);
+                
+                testSocket.onopen = () => {
+                    log('✅ WebSocket connection test successful', 'success');
+                    testSocket.close();
+                };
+                
+                testSocket.onerror = (error) => {
+                    log(`❌ WebSocket connection test failed: ${error}`, 'error');
+                };
+                
+                testSocket.onclose = (event) => {
+                    if (event.code !== 1000) {
+                        log(`❌ WebSocket closed with code: ${event.code}, reason: ${event.reason}`, 'error');
+                    }
+                };
+                
+                // Timeout after 5 seconds
+                setTimeout(() => {
+                    if (testSocket.readyState === WebSocket.CONNECTING) {
+                        testSocket.close();
+                        log('❌ WebSocket connection test timed out', 'error');
+                    }
+                }, 5000);
+                
+            } catch (error) {
+                log(`❌ WebSocket test error: ${error.message}`, 'error');
+            }
+        }
+
+        function connect() {
+            if (typeof JsSIP === 'undefined') {
+                log('❌ JsSIP library not loaded', 'error');
+                alert('JsSIP library failed to load. Please refresh the page.');
+                return;
+            }
+
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            const extension = document.getElementById('extension').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const domain = document.getElementById('domain').value.trim();
+            const displayName = document.getElementById('displayName').value.trim();
+            const realm = document.getElementById('realm').value.trim() || domain;
+
+            if (!serverUrl || !extension || !password || !domain) {
+                log('❌ Please fill in required fields (Server, Extension, Password, Domain)', 'error');
+                return;
+            }
+
+            // Disconnect existing connection
+            if (ua) {
+                disconnect();
+            }
+
+            log(`🔌 Connecting to ${serverUrl} as ${extension}@${domain}...`);
+            updateStatus('connectionStatus', '🔄 Connecting...', 'connecting');
+
+            try {
+                const socket = new JsSIP.WebSocketInterface(serverUrl);
+                
+                // Enhanced configuration for FreeSWITCH
+                const configuration = {
+                    sockets: [socket],
+                    uri: displayName ? `"${displayName}" <sip:${extension}@${domain}>` : `sip:${extension}@${domain}`,
+                    password: password,
+                    realm: realm,
+                    ha1: null,
+                    display_name: displayName || extension,
+                    authorization_user: extension,
+                    session_timers: false,
+                    use_preloaded_route: false,
+                    registrar_server: null, // Let JsSIP use default
+                    contact_uri: null, // Let JsSIP generate
+                    instance_id: null,
+                    no_answer_timeout: 60,
+                    register: true,
+                    register_expires: 600,
+                    connection_recovery_min_interval: 2,
+                    connection_recovery_max_interval: 30
+                };
+
+                log(`📋 Configuration: URI=${configuration.uri}, Realm=${realm}`);
+
+                ua = new JsSIP.UA(configuration);
+                setupEventHandlers();
+                
+                // Enable debug mode for more detailed logging
+                JsSIP.debug.enable('JsSIP:*');
+                
+                ua.start();
+
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`, 'error');
+                updateStatus('connectionStatus', '❌ Connection Failed', 'disconnected');
+            }
+        }
+
+        function setupEventHandlers() {
+            ua.on('connecting', (e) => {
+                log(`🔄 Connecting to server... (${e.socket.url})`);
+                updateStatus('connectionStatus', '🔄 Connecting...', 'connecting');
+            });
+
+            ua.on('connected', (e) => {
+                log(`✅ Connected to WebSocket server: ${e.socket.url}`, 'success');
+                updateStatus('connectionStatus', '✅ Connected', 'connected');
+            });
+
+            ua.on('disconnected', (e) => {
+                log(`❌ Disconnected: ${e.cause} (Code: ${e.code || 'N/A'})`, 'error');
+                updateStatus('connectionStatus', '❌ Disconnected', 'disconnected');
+                updateStatus('registrationStatus', '❌ Not Registered', 'disconnected');
+                document.getElementById('callInterface').classList.remove('active');
+            });
+
+            ua.on('registered', (e) => {
+                log('✅ Successfully registered to FreeSWITCH!', 'success');
+                log(`📝 Registration details: ${e.response.status_code} ${e.response.reason_phrase}`);
+                updateStatus('registrationStatus', '✅ Registered', 'connected');
+                document.getElementById('callInterface').classList.add('active');
+                updateCallDisplay('📞 Ready to make calls');
+            });
+
+            ua.on('unregistered', (e) => {
+                const cause = e.cause || 'Manual disconnect';
+                log(`📝 Unregistered: ${cause}`);
+                updateStatus('registrationStatus', '📝 Not Registered', 'disconnected');
+                document.getElementById('callInterface').classList.remove('active');
+            });
+
+            ua.on('registrationFailed', (e) => {
+                const response = e.response;
+                const cause = e.cause || 'Unknown error';
+                
+                log(`❌ Registration failed: ${cause}`, 'error');
+                
+                if (response) {
+                    log(`📄 Server response: ${response.status_code} ${response.reason_phrase}`, 'error');
+                    
+                    // Common error codes and suggestions
+                    switch (response.status_code) {
+                        case 401:
+                        case 403:
+                            log('💡 Suggestion: Check username/extension and password', 'warning');
+                            break;
+                        case 404:
+                            log('💡 Suggestion: Check if extension exists in FreeSWITCH directory', 'warning');
+                            break;
+                        case 407:
+                            log('💡 Suggestion: Check realm/domain configuration', 'warning');
+                            break;
+                        default:
+                            log(`💡 Suggestion: Check FreeSWITCH logs for more details`, 'warning');
+                    }
+                }
+                
+                updateStatus('registrationStatus', '❌ Registration Failed', 'disconnected');
+            });
+
+            ua.on('newRTCSession', (e) => {
+                const session = e.session;
+                currentSession = session;
+                setupSessionEventHandlers(session);
+
+                if (session.direction === 'incoming') {
+                    const caller = session.remote_identity.uri.user;
+                    log(`📞 Incoming call from: ${caller}`, 'info');
+                    updateCallDisplay(`📞 Incoming call from ${caller}`);
+                    updateStatus('callStatus', '📞 Incoming Call', 'warning');
+                    
+                    document.getElementById('answerBtn').disabled = false;
+                    document.getElementById('rejectBtn').disabled = false;
+                }
+            });
+        }
+
+        function setupSessionEventHandlers(session) {
+            session.on('progress', (e) => {
+                log('📞 Call progress - ringing...');
+                updateCallDisplay('📞 Ringing...');
+            });
+
+            session.on('accepted', (e) => {
+                log('✅ Call connected', 'success');
+                updateCallDisplay('✅ Call in progress');
+                updateStatus('callStatus', '✅ Call Active', 'connected');
+                
+                document.getElementById('callBtn').disabled = true;
+                document.getElementById('hangupBtn').disabled = false;
+                document.getElementById('answerBtn').disabled = true;
+                document.getElementById('rejectBtn').disabled = true;
+            });
+
+            session.on('ended', (e) => {
+                const cause = e.cause || 'Normal';
+                log(`📵 Call ended: ${cause}`);
+                updateCallDisplay('📞 Ready to make calls');
+                updateStatus('callStatus', '📵 Call Ended', 'disconnected');
+                resetCallButtons();
+                currentSession = null;
+            });
+
+            session.on('failed', (e) => {
+                const cause = e.cause || 'Unknown error';
+                log(`❌ Call failed: ${cause}`, 'error');
+                
+                if (e.response) {
+                    log(`📄 Error response: ${e.response.status_code} ${e.response.reason_phrase}`, 'error');
+                }
+                
+                updateCallDisplay('❌ Call failed');
+                updateStatus('callStatus', '❌ Call Failed', 'disconnected');
+                resetCallButtons();
+                currentSession = null;
+            });
+
+            // Handle audio streams
+            session.on('peerconnection', (e) => {
+                const pc = e.peerconnection;
+                
+                pc.ontrack = (event) => {
+                    if (event.streams && event.streams[0]) {
+                        const remoteAudio = document.getElementById('remoteAudio');
+                        remoteAudio.srcObject = event.streams[0];
+                        log('🔊 Remote audio stream received');
+                    }
+                };
+
+                // Log ICE connection state
+                pc.oniceconnectionstatechange = () => {
+                    log(`🧊 ICE connection state: ${pc.iceConnectionState}`);
+                };
+            });
+        }
+
+        function resetCallButtons() {
+            document.getElementById('callBtn').disabled = false;
+            document.getElementById('hangupBtn').disabled = true;
+            document.getElementById('answerBtn').disabled = true;
+            document.getElementById('rejectBtn').disabled = true;
+        }
+
+        function disconnect() {
+            if (ua) {
+                if (ua.isRegistered()) {
+                    ua.unregister();
+                }
+                ua.stop();
+                ua = null;
+            }
+            
+            if (currentSession) {
+                currentSession.terminate();
+                currentSession = null;
+            }
+            
+            updateStatus('connectionStatus', '❌ Disconnected', 'disconnected');
+            updateStatus('registrationStatus', '❌ Not Registered', 'disconnected');
+            updateStatus('callStatus', '📵 No Active Call', 'disconnected');
+            document.getElementById('callInterface').classList.remove('active');
+            resetCallButtons();
+            log('🔌 Disconnected from server');
+        }
+
+        function makeCall() {
+            if (!ua || !ua.isRegistered()) {
+                log('❌ Not registered! Please connect first.', 'error');
+                return;
+            }
+
+            const number = document.getElementById('dialNumber').value.trim();
+            if (!number) {
+                log('❌ Please enter a number to call', 'error');
+                return;
+            }
+
+            const domain = document.getElementById('domain').value;
+            const target = `sip:${number}@${domain}`;
+            
+            log(`📞 Calling ${number} (${target})...`);
+            updateCallDisplay(`📞 Calling ${number}...`);
+            updateStatus('callStatus', '📞 Calling...', 'connecting');
+
+            const options = {
+                mediaConstraints: { audio: true, video: false },
+                rtcOfferConstraints: { 
+                    offerToReceiveAudio: 1, 
+                    offerToReceiveVideo: 0 
+                }
+            };
+
+            try {
+                currentSession = ua.call(target, options);
+                document.getElementById('callBtn').disabled = true;
+                document.getElementById('hangupBtn').disabled = false;
+            } catch (error) {
+                log(`❌ Failed to make call: ${error.message}`, 'error');
+                updateStatus('callStatus', '❌ Call Failed', 'disconnected');
+                resetCallButtons();
+            }
+        }
+
+        function hangup() {
+            if (currentSession) {
+                currentSession.terminate();
+                log('📵 Call terminated');
+            }
+        }
+
+        function answer() {
+            if (currentSession) {
+                const options = {
+                    mediaConstraints: { audio: true, video: false }
+                };
+                currentSession.answer(options);
+                log('✅ Call answered');
+            }
+        }
+
+        function reject() {
+            if (currentSession) {
+                currentSession.terminate();
+                log('❌ Call rejected');
+            }
+        }
+
+        function toggleMute() {
+            if (currentSession && currentSession.isEstablished()) {
+                if (isMuted) {
+                    currentSession.unmute();
+                    document.getElementById('muteStatus').textContent = 'Unmuted';
+                    log('🎤 Microphone unmuted');
+                } else {
+                    currentSession.mute();
+                    document.getElementById('muteStatus').textContent = 'Muted';
+                    log('🔇 Microphone muted');
+                }
+                isMuted = !isMuted;
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            log('🚀 Enhanced FreeSWITCH WebRTC Softphone loaded');
+            checkSecurity();
+            
+            if (typeof JsSIP === 'undefined') {
+                log('❌ JsSIP library failed to load', 'error');
+                setTimeout(() => {
+                    alert('JsSIP library failed to load. Please check your internet connection and refresh the page.');
+                }, 1000);
+            } else {
+                log(`✅ JsSIP version ${JsSIP.version} loaded successfully`, 'success');
+                log('💡 Click "Test WebSocket" to verify connection before registering');
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey) return;
+            
+            // Number pad
+            if (e.key >= '0' && e.key <= '9') {
+                addDigit(e.key);
+            } else if (e.key === '*') {
+                addDigit('*');
+            } else if (e.key === '#') {
+                addDigit('#');
+            } else if (e.key === 'Enter' && ua && ua.isRegistered()) {
+                makeCall();
+            } else if (e.key === 'Escape' && currentSession) {
+                hangup();
+            }
+        });
+    </script>
+</body>
+</html>
