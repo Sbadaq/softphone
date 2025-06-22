@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC SIP Softphone</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.calling { background: #fff3cd; color: #856404; }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #1e7e34; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #545b62; }
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            max-width: 200px;
+            margin: 20px auto;
+        }
+        .keypad button {
+            aspect-ratio: 1;
+            font-size: 18px;
+        }
+        .call-controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .audio-controls {
+            margin: 20px 0;
+        }
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .logs {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: scroll;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .debug-info {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 12px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📞 WebRTC SIP Softphone</h1>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </div>
+
+        <div class="form-group">
+            <label for="server">SIP Server (WebSocket):</label>
+            <input type="text" id="server" value="wss://sip.example.com:7443" placeholder="wss://sip.example.com:7443">
+        </div>
+
+        <div class="form-group">
+            <label for="username">SIP Username:</label>
+            <input type="text" id="username" value="1000" placeholder="1000">
+        </div>
+
+        <div class="form-group">
+            <label for="password">SIP Password:</label>
+            <input type="password" id="password" value="1234" placeholder="Password">
+        </div>
+
+        <div class="form-group">
+            <label for="domain">SIP Domain:</label>
+            <input type="text" id="domain" value="sip.example.com" placeholder="sip.example.com">
+        </div>
+
+        <div class="call-controls">
+            <button id="connectBtn" class="btn-primary" onclick="connect()">Register</button>
+            <button id="disconnectBtn" class="btn-secondary" onclick="disconnect()" disabled>Unregister</button>
+        </div>
+
+        <div class="form-group">
+            <label for="callNumber">Call Number:</label>
+            <input type="text" id="callNumber" placeholder="1001" value="">
+        </div>
+
+        <div class="keypad">
+            <button onclick="addDigit('1')">1</button>
+            <button onclick="addDigit('2')">2</button>
+            <button onclick="addDigit('3')">3</button>
+            <button onclick="addDigit('4')">4</button>
+            <button onclick="addDigit('5')">5</button>
+            <button onclick="addDigit('6')">6</button>
+            <button onclick="addDigit('7')">7</button>
+            <button onclick="addDigit('8')">8</button>
+            <button onclick="addDigit('9')">9</button>
+            <button onclick="addDigit('*')">*</button>
+            <button onclick="addDigit('0')">0</button>
+            <button onclick="addDigit('#')">#</button>
+        </div>
+
+        <div class="call-controls">
+            <button id="callBtn" class="btn-success" onclick="makeCall()" disabled>📞 Call</button>
+            <button id="hangupBtn" class="btn-danger" onclick="hangup()" disabled>📴 Hang Up</button>
+            <button onclick="clearNumber()" class="btn-secondary">Clear</button>
+        </div>
+
+        <div class="audio-controls">
+            <h3>Audio</h3>
+            <audio id="remoteAudio" controls autoplay></audio>
+            <audio id="localAudio" muted></audio>
+        </div>
+
+        <div class="debug-info">
+            <strong>Registration:</strong> <span id="registrationStatus">Not registered</span><br>
+            <strong>Call ID:</strong> <span id="callIdDisplay">No active call</span><br>
+            <strong>Local URI:</strong> <span id="localUriDisplay">None</span>
+        </div>
+
+        <div class="form-group">
+            <label>SIP Logs:</label>
+            <div id="logs" class="logs"></div>
+        </div>
+
+        <audio controls src="recordings/a174e818-170e-43ce-8daf-6580f1007443.wav"></audio>
+
+    </div>
+
+    <script>
+        let ws;
+        let localStream;
+        let remoteStream;
+        let peerConnection;
+        let isConnected = false;
+        let isRegistered = false;
+        let isInCall = false;
+        let currentCallId;
+        let sequenceNumber = 1;
+        let registrationInterval;
+        let localUri;
+        let remoteUri;
+        let username, password, domain, serverUrl;
+
+        // SIP specific variables
+        let callSequence = 1;
+        let branch;
+        let tag;
+        let cseq = 1;
+        let localSdp = null;
+
+        const pcConfig = {
+            iceServers: [
+                // { urls: 'stun:stun.l.google.com:19302' },
+                // { urls: 'stun:stun1.l.google.com:19302' }
+            ],
+            iceCandidatePoolSize: 10
+        };
+
+        function log(message) {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.innerHTML += `[${timestamp}] ${message}\n`;
+            logs.scrollTop = logs.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function updateDebugInfo() {
+            document.getElementById('registrationStatus').textContent = isRegistered ? 'Registered' : 'Not registered';
+            document.getElementById('callIdDisplay').textContent = currentCallId || 'No active call';
+            document.getElementById('localUriDisplay').textContent = localUri || 'None';
+        }
+
+        function updateButtons() {
+            document.getElementById('connectBtn').disabled = isConnected;
+            document.getElementById('disconnectBtn').disabled = !isConnected;
+            document.getElementById('callBtn').disabled = !isRegistered || isInCall;
+            document.getElementById('hangupBtn').disabled = !isInCall;
+        }
+
+        function addDigit(digit) {
+            const callNumber = document.getElementById('callNumber');
+            callNumber.value += digit;
+        }
+
+        function clearNumber() {
+            document.getElementById('callNumber').value = '';
+        }
+
+        function generateBranch() {
+            return 'z9hG4bK-' + Math.random().toString(36).substr(2, 16);
+        }
+
+        function generateTag() {
+            return Math.random().toString(36).substr(2, 10);
+        }
+
+        function generateCallId() {
+            return Math.random().toString(36).substr(2, 16) + '@' + domain;
+        }
+
+        function createSipMessage(method, uri, headers = {}, body = '') {
+            branch = generateBranch();
+            const via = `SIP/2.0/WS ${domain};branch=${branch}`;
+            const from = `<sip:${username}@${domain}>;tag=${tag}`;
+            const to = headers.To || `<${uri}>`;
+            const callId = headers['Call-ID'] || generateCallId();
+            const cseqValue = `${cseq++} ${method}`;
+            const contact = `<sip:${username}@${domain};transport=ws>`;
+
+            let message = `${method} ${uri} SIP/2.0\r\n`;
+            message += `Via: ${via}\r\n`;
+            message += `From: ${from}\r\n`;
+            message += `To: ${to}\r\n`;
+            message += `Call-ID: ${callId}\r\n`;
+            message += `CSeq: ${cseqValue}\r\n`;
+            message += `Contact: ${contact}\r\n`;
+            message += `Max-Forwards: 70\r\n`;
+            message += `User-Agent: WebRTC-SIP-Client/1.0\r\n`;
+
+            // Add custom headers
+            Object.keys(headers).forEach(key => {
+                if (!['To', 'Call-ID'].includes(key)) {
+                    message += `${key}: ${headers[key]}\r\n`;
+                }
+            });
+
+            if (body) {
+                message += `Content-Type: application/sdp\r\n`;
+                message += `Content-Length: ${body.length}\r\n`;
+                message += `\r\n${body}`;
+            } else {
+                message += `Content-Length: 0\r\n\r\n`;
+            }
+
+            return { message, callId, branch };
+        }
+
+        function sendSipMessage(method, uri, headers = {}, body = '') {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('ERROR: WebSocket not connected');
+                return null;
+            }
+
+            const sipMessage = createSipMessage(method, uri, headers, body);
+            log(`Sending ${method} to ${uri}`);
+            console.log('SIP Message:', sipMessage.message);
+            
+            try {
+                ws.send(sipMessage.message);
+                return sipMessage;
+            } catch (error) {
+                log('ERROR: Failed to send SIP message: ' + error);
+                return null;
+            }
+        }
+
+        async function getUserMedia() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
+                });
+                document.getElementById('localAudio').srcObject = localStream;
+                log('Microphone access granted');
+                return true;
+            } catch (error) {
+                log('ERROR: Microphone access denied: ' + error);
+                return false;
+            }
+        }
+
+        async function connect() {
+            serverUrl = document.getElementById('server').value;
+            username = document.getElementById('username').value;
+            password = document.getElementById('password').value;
+            domain = document.getElementById('domain').value;
+
+            if (!serverUrl || !username || !password || !domain) {
+                alert('Please fill in all connection fields');
+                return;
+            }
+
+            // Get microphone permission first
+            if (!(await getUserMedia())) {
+                alert('Microphone access is required for VoIP calls');
+                return;
+            }
+
+            log('Connecting to SIP server: ' + serverUrl);
+            updateStatus('Connecting...', 'calling');
+
+            tag = generateTag();
+            localUri = `sip:${username}@${domain}`;
+            updateDebugInfo();
+
+            try {
+                ws = new WebSocket(serverUrl, 'sip');
+
+                ws.onopen = function() {
+                    log('WebSocket connected successfully');
+                    isConnected = true;
+                    updateButtons();
+                    
+                    // Send REGISTER request
+                    register();
+                };
+
+                ws.onmessage = function(event) {
+                    log('Received SIP message');
+                    console.log('Raw SIP message:', event.data);
+                    handleSipMessage(event.data);
+                };
+
+                ws.onerror = function(error) {
+                    log('ERROR: WebSocket error: ' + error);
+                    updateStatus('Connection Failed', 'disconnected');
+                };
+
+                ws.onclose = function(event) {
+                    log('WebSocket closed. Code: ' + event.code);
+                    isConnected = false;
+                    isRegistered = false;
+                    updateStatus('Disconnected', 'disconnected');
+                    updateButtons();
+                    updateDebugInfo();
+                    
+                    if (registrationInterval) {
+                        clearInterval(registrationInterval);
+                        registrationInterval = null;
+                    }
+                };
+
+            } catch (error) {
+                log('ERROR: Connection error: ' + error);
+                updateStatus('Connection Failed', 'disconnected');
+            }
+        }
+
+        // function register() {
+        //     log('Sending REGISTER request');
+        //     const uri = `sip:${domain}`;
+        //     const expires = 3600; // 1 hour
+            
+        //     const headers = {
+        //         'Expires': expires.toString(),
+        //         'Authorization': generateAuthHeader('REGISTER', uri)
+        //     };
+
+        //     sendSipMessage('REGISTER', uri, headers);
+
+        //     // Set up re-registration timer (refresh every 30 minutes)
+        //     if (registrationInterval) {
+        //         clearInterval(registrationInterval);
+        //     }
+        //     registrationInterval = setInterval(() => {
+        //         if (isRegistered && isConnected) {
+        //             log('Re-registering with SIP server');
+        //             register();
+        //         }
+        //     }, 1800000); // 30 minutes
+        // }
+        async function register(isRetry = false, wwwAuth = "") {
+            log((isRetry ? "Retrying" : "Sending") + " REGISTER request");
+            const uri = `sip:${domain}`;
+            const expires = 3600;
+
+            const headers = {
+                'Expires': expires.toString()
+            };
+
+            if (isRetry && wwwAuth) {
+                const authHeader = await generateAuthHeaderDigest('REGISTER', uri, wwwAuth);
+                if (authHeader) {
+                    headers['Authorization'] = authHeader;
+                }
+            }
+
+            sendSipMessage('REGISTER', uri, headers);
+        }
+        // Function to generate random cnonce for digest authentication
+        function generateRandomCnonce() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let result = '';
+            for (let i = 0; i < 16; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        // Function to calculate MD5 hash (simplified implementation)
+        function md5(str) {
+            // Simple MD5 implementation for digest auth
+            // You might want to use a proper crypto library for production
+            function rotateLeft(value, amount) {
+                const lbits = (value << amount) | (value >>> (32 - amount));
+                return lbits;
+            }
+
+            function addUnsigned(x, y) {
+                const x4 = (x & 0x40000000);
+                const y4 = (y & 0x40000000);
+                const x8 = (x & 0x80000000);
+                const y8 = (y & 0x80000000);
+                const result = (x & 0x3FFFFFFF) + (y & 0x3FFFFFFF);
+                if (x4 & y4) {
+                    return (result ^ 0x80000000 ^ x8 ^ y8);
+                }
+                if (x4 | y4) {
+                    if (result & 0x40000000) {
+                        return (result ^ 0xC0000000 ^ x8 ^ y8);
+                    } else {
+                        return (result ^ 0x40000000 ^ x8 ^ y8);
+                    }
+                } else {
+                    return (result ^ x8 ^ y8);
+                }
+            }
+
+            function F(x, y, z) { return (x & y) | ((~x) & z); }
+            function G(x, y, z) { return (x & z) | (y & (~z)); }
+            function H(x, y, z) { return (x ^ y ^ z); }
+            function I(x, y, z) { return (y ^ (x | (~z))); }
+
+            function FF(a, b, c, d, x, s, ac) {
+                a = addUnsigned(a, addUnsigned(addUnsigned(F(b, c, d), x), ac));
+                return addUnsigned(rotateLeft(a, s), b);
+            }
+
+            function GG(a, b, c, d, x, s, ac) {
+                a = addUnsigned(a, addUnsigned(addUnsigned(G(b, c, d), x), ac));
+                return addUnsigned(rotateLeft(a, s), b);
+            }
+
+            function HH(a, b, c, d, x, s, ac) {
+                a = addUnsigned(a, addUnsigned(addUnsigned(H(b, c, d), x), ac));
+                return addUnsigned(rotateLeft(a, s), b);
+            }
+
+            function II(a, b, c, d, x, s, ac) {
+                a = addUnsigned(a, addUnsigned(addUnsigned(I(b, c, d), x), ac));
+                return addUnsigned(rotateLeft(a, s), b);
+            }
+
+            function convertToWordArray(str) {
+                let wordArray = [];
+                let wordCount = ((str.length + 8) >>> 6) + 1;
+                let messageLength = wordCount * 16;
+                wordArray = Array(messageLength - 1);
+                let bytePosition = 0;
+                let byteCount = 0;
+                while (byteCount < str.length) {
+                    let wordPosition = (byteCount - (byteCount % 4)) / 4;
+                    bytePosition = (byteCount % 4) * 8;
+                    wordArray[wordPosition] = (wordArray[wordPosition] | (str.charCodeAt(byteCount) << bytePosition));
+                    byteCount++;
+                }
+                let wordPosition = (byteCount - (byteCount % 4)) / 4;
+                bytePosition = (byteCount % 4) * 8;
+                wordArray[wordPosition] = wordArray[wordPosition] | (0x80 << bytePosition);
+                wordArray[messageLength - 2] = str.length << 3;
+                wordArray[messageLength - 1] = str.length >>> 29;
+                return wordArray;
+            }
+
+            function wordToHex(value) {
+                let wordToHexValue = "";
+                let wordToHexValueTemp = "";
+                let byte;
+                for (let count = 0; count <= 3; count++) {
+                    byte = (value >>> (count * 8)) & 255;
+                    wordToHexValueTemp = "0" + byte.toString(16);
+                    wordToHexValue = wordToHexValue + wordToHexValueTemp.substr(wordToHexValueTemp.length - 2, 2);
+                }
+                return wordToHexValue;
+            }
+
+            let x = convertToWordArray(str);
+            let a = 0x67452301;
+            let b = 0xEFCDAB89;
+            let c = 0x98BADCFE;
+            let d = 0x10325476;
+
+            for (let k = 0; k < x.length; k += 16) {
+                let AA = a;
+                let BB = b;
+                let CC = c;
+                let DD = d;
+                a = FF(a, b, c, d, x[k + 0], 7, 0xD76AA478);
+                d = FF(d, a, b, c, x[k + 1], 12, 0xE8C7B756);
+                c = FF(c, d, a, b, x[k + 2], 17, 0x242070DB);
+                b = FF(b, c, d, a, x[k + 3], 22, 0xC1BDCEEE);
+                a = FF(a, b, c, d, x[k + 4], 7, 0xF57C0FAF);
+                d = FF(d, a, b, c, x[k + 5], 12, 0x4787C62A);
+                c = FF(c, d, a, b, x[k + 6], 17, 0xA8304613);
+                b = FF(b, c, d, a, x[k + 7], 22, 0xFD469501);
+                a = FF(a, b, c, d, x[k + 8], 7, 0x698098D8);
+                d = FF(d, a, b, c, x[k + 9], 12, 0x8B44F7AF);
+                c = FF(c, d, a, b, x[k + 10], 17, 0xFFFF5BB1);
+                b = FF(b, c, d, a, x[k + 11], 22, 0x895CD7BE);
+                a = FF(a, b, c, d, x[k + 12], 7, 0x6B901122);
+                d = FF(d, a, b, c, x[k + 13], 12, 0xFD987193);
+                c = FF(c, d, a, b, x[k + 14], 17, 0xA679438E);
+                b = FF(b, c, d, a, x[k + 15], 22, 0x49B40821);
+                a = GG(a, b, c, d, x[k + 1], 5, 0xF61E2562);
+                d = GG(d, a, b, c, x[k + 6], 9, 0xC040B340);
+                c = GG(c, d, a, b, x[k + 11], 14, 0x265E5A51);
+                b = GG(b, c, d, a, x[k + 0], 20, 0xE9B6C7AA);
+                a = GG(a, b, c, d, x[k + 5], 5, 0xD62F105D);
+                d = GG(d, a, b, c, x[k + 10], 9, 0x2441453);
+                c = GG(c, d, a, b, x[k + 15], 14, 0xD8A1E681);
+                b = GG(b, c, d, a, x[k + 4], 20, 0xE7D3FBC8);
+                a = GG(a, b, c, d, x[k + 9], 5, 0x21E1CDE6);
+                d = GG(d, a, b, c, x[k + 14], 9, 0xC33707D6);
+                c = GG(c, d, a, b, x[k + 3], 14, 0xF4D50D87);
+                b = GG(b, c, d, a, x[k + 8], 20, 0x455A14ED);
+                a = GG(a, b, c, d, x[k + 13], 5, 0xA9E3E905);
+                d = GG(d, a, b, c, x[k + 2], 9, 0xFCEFA3F8);
+                c = GG(c, d, a, b, x[k + 7], 14, 0x676F02D9);
+                b = GG(b, c, d, a, x[k + 12], 20, 0x8D2A4C8A);
+                a = HH(a, b, c, d, x[k + 5], 4, 0xFFFA3942);
+                d = HH(d, a, b, c, x[k + 8], 11, 0x8771F681);
+                c = HH(c, d, a, b, x[k + 11], 16, 0x6D9D6122);
+                b = HH(b, c, d, a, x[k + 14], 23, 0xFDE5380C);
+                a = HH(a, b, c, d, x[k + 1], 4, 0xA4BEEA44);
+                d = HH(d, a, b, c, x[k + 4], 11, 0x4BDECFA9);
+                c = HH(c, d, a, b, x[k + 7], 16, 0xF6BB4B60);
+                b = HH(b, c, d, a, x[k + 10], 23, 0xBEBFBC70);
+                a = HH(a, b, c, d, x[k + 13], 4, 0x289B7EC6);
+                d = HH(d, a, b, c, x[k + 0], 11, 0xEAA127FA);
+                c = HH(c, d, a, b, x[k + 3], 16, 0xD4EF3085);
+                b = HH(b, c, d, a, x[k + 6], 23, 0x4881D05);
+                a = HH(a, b, c, d, x[k + 9], 4, 0xD9D4D039);
+                d = HH(d, a, b, c, x[k + 12], 11, 0xE6DB99E5);
+                c = HH(c, d, a, b, x[k + 15], 16, 0x1FA27CF8);
+                b = HH(b, c, d, a, x[k + 2], 23, 0xC4AC5665);
+                a = II(a, b, c, d, x[k + 0], 6, 0xF4292244);
+                d = II(d, a, b, c, x[k + 7], 10, 0x432AFF97);
+                c = II(c, d, a, b, x[k + 14], 15, 0xAB9423A7);
+                b = II(b, c, d, a, x[k + 5], 21, 0xFC93A039);
+                a = II(a, b, c, d, x[k + 12], 6, 0x655B59C3);
+                d = II(d, a, b, c, x[k + 3], 10, 0x8F0CCC92);
+                c = II(c, d, a, b, x[k + 10], 15, 0xFFEFF47D);
+                b = II(b, c, d, a, x[k + 1], 21, 0x85845DD1);
+                a = II(a, b, c, d, x[k + 8], 6, 0x6FA87E4F);
+                d = II(d, a, b, c, x[k + 15], 10, 0xFE2CE6E0);
+                c = II(c, d, a, b, x[k + 6], 15, 0xA3014314);
+                b = II(b, c, d, a, x[k + 13], 21, 0x4E0811A1);
+                a = II(a, b, c, d, x[k + 4], 6, 0xF7537E82);
+                d = II(d, a, b, c, x[k + 11], 10, 0xBD3AF235);
+                c = II(c, d, a, b, x[k + 2], 15, 0x2AD7D2BB);
+                b = II(b, c, d, a, x[k + 9], 21, 0xEB86D391);
+                a = addUnsigned(a, AA);
+                b = addUnsigned(b, BB);
+                c = addUnsigned(c, CC);
+                d = addUnsigned(d, DD);
+            }
+
+            return (wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d)).toLowerCase();
+        }
+
+        // Main function to generate Digest Authorization header
+        function generateDigestAuthorization({ username, password, method, uri, realm, nonce, qop, nc, cnonce }) {
+            // Calculate HA1
+            const ha1 = md5(`${username}:${realm}:${password}`);
+            
+            // Calculate HA2
+            const ha2 = md5(`${method}:${uri}`);
+            
+            // Calculate response
+            let response;
+            if (qop === 'auth' || qop === 'auth-int') {
+                response = md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`);
+            } else {
+                response = md5(`${ha1}:${nonce}:${ha2}`);
+            }
+            
+            // Build authorization header
+            let authHeader = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${response}"`;
+            
+            if (qop) {
+                authHeader += `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+            }
+            
+            return authHeader;
+        }
+        // function generateAuthHeader(method, uri) {
+        //     // This is a simplified auth header - in a real implementation,
+        //     // you would need to handle digest authentication properly
+        //     const credentials = btoa(`${username}:${password}`);
+        //     return `Basic ${credentials}`;
+        // }
+        function md5cycle(x, k) {
+        let [a, b, c, d] = x;
+
+        function ff(a, b, c, d, x, s, t) {
+            a = (a + ((b & c) | (~b & d)) + x + t) | 0;
+            return ((a << s) | (a >>> (32 - s))) + b | 0;
+        }
+        function gg(a, b, c, d, x, s, t) {
+            a = (a + ((b & d) | (c & ~d)) + x + t) | 0;
+            return ((a << s) | (a >>> (32 - s))) + b | 0;
+        }
+        function hh(a, b, c, d, x, s, t) {
+            a = (a + (b ^ c ^ d) + x + t) | 0;
+            return ((a << s) | (a >>> (32 - s))) + b | 0;
+        }
+        function ii(a, b, c, d, x, s, t) {
+            a = (a + (c ^ (b | ~d)) + x + t) | 0;
+            return ((a << s) | (a >>> (32 - s))) + b | 0;
+        }
+
+        a = ff(a, b, c, d, k[0], 7, -680876936);
+        d = ff(d, a, b, c, k[1], 12, -389564586);
+        c = ff(c, d, a, b, k[2], 17, 606105819);
+        b = ff(b, c, d, a, k[3], 22, -1044525330);
+        a = ff(a, b, c, d, k[4], 7, -176418897);
+        d = ff(d, a, b, c, k[5], 12, 1200080426);
+        c = ff(c, d, a, b, k[6], 17, -1473231341);
+        b = ff(b, c, d, a, k[7], 22, -45705983);
+        a = ff(a, b, c, d, k[8], 7, 1770035416);
+        d = ff(d, a, b, c, k[9], 12, -1958414417);
+        c = ff(c, d, a, b, k[10], 17, -42063);
+        b = ff(b, c, d, a, k[11], 22, -1990404162);
+        a = ff(a, b, c, d, k[12], 7, 1804603682);
+        d = ff(d, a, b, c, k[13], 12, -40341101);
+        c = ff(c, d, a, b, k[14], 17, -1502002290);
+        b = ff(b, c, d, a, k[15], 22, 1236535329);
+
+        a = gg(a, b, c, d, k[1], 5, -165796510);
+        d = gg(d, a, b, c, k[6], 9, -1069501632);
+        c = gg(c, d, a, b, k[11], 14, 643717713);
+        b = gg(b, c, d, a, k[0], 20, -373897302);
+        a = gg(a, b, c, d, k[5], 5, -701558691);
+        d = gg(d, a, b, c, k[10], 9, 38016083);
+        c = gg(c, d, a, b, k[15], 14, -660478335);
+        b = gg(b, c, d, a, k[4], 20, -405537848);
+        a = gg(a, b, c, d, k[9], 5, 568446438);
+        d = gg(d, a, b, c, k[14], 9, -1019803690);
+        c = gg(c, d, a, b, k[3], 14, -187363961);
+        b = gg(b, c, d, a, k[8], 20, 1163531501);
+        a = gg(a, b, c, d, k[13], 5, -1444681467);
+        d = gg(d, a, b, c, k[2], 9, -51403784);
+        c = gg(c, d, a, b, k[7], 14, 1735328473);
+        b = gg(b, c, d, a, k[12], 20, -1926607734);
+
+        a = hh(a, b, c, d, k[5], 4, -378558);
+        d = hh(d, a, b, c, k[8], 11, -2022574463);
+        c = hh(c, d, a, b, k[11], 16, 1839030562);
+        b = hh(b, c, d, a, k[14], 23, -35309556);
+        a = hh(a, b, c, d, k[1], 4, -1530992060);
+        d = hh(d, a, b, c, k[4], 11, 1272893353);
+        c = hh(c, d, a, b, k[7], 16, -155497632);
+        b = hh(b, c, d, a, k[10], 23, -1094730640);
+        a = hh(a, b, c, d, k[13], 4, 681279174);
+        d = hh(d, a, b, c, k[0], 11, -358537222);
+        c = hh(c, d, a, b, k[3], 16, -722521979);
+        b = hh(b, c, d, a, k[6], 23, 76029189);
+        a = hh(a, b, c, d, k[9], 4, -640364487);
+        d = hh(d, a, b, c, k[12], 11, -421815835);
+        c = hh(c, d, a, b, k[15], 16, 530742520);
+        b = hh(b, c, d, a, k[2], 23, -995338651);
+
+        a = ii(a, b, c, d, k[0], 6, -198630844);
+        d = ii(d, a, b, c, k[7], 10, 1126891415);
+        c = ii(c, d, a, b, k[14], 15, -1416354905);
+        b = ii(b, c, d, a, k[5], 21, -57434055);
+        a = ii(a, b, c, d, k[12], 6, 1700485571);
+        d = ii(d, a, b, c, k[3], 10, -1894986606);
+        c = ii(c, d, a, b, k[10], 15, -1051523);
+        b = ii(b, c, d, a, k[1], 21, -2054922799);
+        a = ii(a, b, c, d, k[8], 6, 1873313359);
+        d = ii(d, a, b, c, k[15], 10, -30611744);
+        c = ii(c, d, a, b, k[6], 15, -1560198380);
+        b = ii(b, c, d, a, k[13], 21, 1309151649);
+        a = ii(a, b, c, d, k[4], 6, -145523070);
+        d = ii(d, a, b, c, k[11], 10, -1120210379);
+        c = ii(c, d, a, b, k[2], 15, 718787259);
+        b = ii(b, c, d, a, k[9], 21, -343485551);
+
+        x[0] = (x[0] + a) | 0;
+        x[1] = (x[1] + b) | 0;
+        x[2] = (x[2] + c) | 0;
+        x[3] = (x[3] + d) | 0;
+        }
+
+        function md5blk(s) {
+        let md5blks = [];
+        for (let i = 0; i < 64; i += 4) {
+            md5blks[i >> 2] =
+            s.charCodeAt(i) +
+            (s.charCodeAt(i + 1) << 8) +
+            (s.charCodeAt(i + 2) << 16) +
+            (s.charCodeAt(i + 3) << 24);
+        }
+        return md5blks;
+        }
+
+        function md51(s) {
+        let n = s.length;
+        let state = [1732584193, -271733879, -1732584194, 271733878];
+        let i;
+        let length;
+        let tail = new Array(16).fill(0);
+
+        for (i = 64; i <= n; i += 64) {
+            md5cycle(state, md5blk(s.substring(i - 64, i)));
+        }
+
+        s = s.substring(i - 64);
+        length = s.length;
+
+        for (i = 0; i < length; i++) {
+            tail[i >> 2] |= s.charCodeAt(i) << ((i % 4) << 3);
+        }
+        tail[i >> 2] |= 0x80 << ((i % 4) << 3);
+
+        if (i > 55) {
+            md5cycle(state, tail);
+            tail.fill(0);
+        }
+
+        tail[14] = n * 8;
+        md5cycle(state, tail);
+
+        return state;
+        }
+
+        function rhex(n) {
+        let s = "",
+            j;
+        for (j = 0; j < 4; j++) {
+            s +=
+            ((n >> (j * 8 + 4)) & 0x0f).toString(16) +
+            ((n >> (j * 8)) & 0x0f).toString(16);
+        }
+        return s;
+        }
+
+        function md5(s) {
+        return md51(s).map(rhex).join("");
+        }
+                
+        async function generateAuthHeaderDigest(method, uri, wwwAuthHeader) {
+            const realmMatch = wwwAuthHeader.match(/realm="([^"]+)"/);
+            const nonceMatch = wwwAuthHeader.match(/nonce="([^"]+)"/);
+            const qopMatch = wwwAuthHeader.match(/qop="([^"]+)"/);
+
+            if (!realmMatch || !nonceMatch) {
+                log("ERROR: Failed to parse WWW-Authenticate header");
+                return null;
+            }
+
+            const realm = realmMatch[1];
+            const nonce = nonceMatch[1];
+            const qop = qopMatch ? qopMatch[1] : "auth";
+            const nc = "00000001"; // nonce count (always "1" for first try)
+            const cnonce = Math.random().toString(36).substring(2, 14);
+
+            const ha1 = await md5(`${username}:${realm}:${password}`);
+            const ha2 = await md5(`${method}:${uri}`);
+            const response = await md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`);
+
+            const authHeader = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm=MD5, response="${response}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+            return authHeader;
+        }
+
+        function handleSipMessage(message) {
+            const lines = message.split('\r\n');
+            const firstLine = lines[0];
+            
+            if (firstLine.startsWith('SIP/2.0')) {
+                // This is a response
+                const statusMatch = firstLine.match(/SIP\/2\.0 (\d+) (.+)/);
+                if (statusMatch) {
+                    const statusCode = parseInt(statusMatch[1]);
+                    const reasonPhrase = statusMatch[2];
+                    handleSipResponse(statusCode, reasonPhrase, message);
+                }
+            } else {
+                // This is a request
+                const methodMatch = firstLine.match(/^(\w+) (.+) SIP\/2\.0/);
+                if (methodMatch) {
+                    const method = methodMatch[1];
+                    const uri = methodMatch[2];
+                    handleSipRequest(method, uri, message);
+                }
+            }
+        }
+        function createInviteRequest(callee, domain,localSdp) {
+            const callId = currentCallId || generateCallId();
+            const branch = generateBranch();
+            const tag = generateTag();
+            const uri = `sip:${callee}@${domain}`;
+            const contact = `sip:${username}@${domain};transport=ws`;
+
+            return {
+                method: "INVITE",
+                uri: uri,
+                headers: {
+                    "Via": `SIP/2.0/WS ${domain};branch=${branch};rport`,
+                    "Max-Forwards": "70",
+                    "To": `<sip:${callee}@${domain}>`,
+                    "From": `<sip:${username}@${domain}>;tag=${tag}`,
+                    "Call-ID": callId,
+                    "CSeq": `${cseq++} INVITE`,
+                    "Contact": `<${contact}>`,
+                    "Content-Type": "application/sdp",
+                    "User-Agent": "MySoftPhone/1.0",
+                    // Proxy-Authorization 会由上层添加
+                },
+                body: localSdp  // 你生成的 SDP 内容，推荐缓存起来
+            };
+        }
+        function buildSipMessage(request) {
+            let message = `${request.method} ${request.uri} SIP/2.0\r\n`;
+
+            for (const [headerName, headerValue] of Object.entries(request.headers)) {
+                message += `${headerName}: ${headerValue}\r\n`;
+            }
+
+            message += `Content-Length: ${request.body ? request.body.length : 0}\r\n\r\n`;
+
+            if (request.body) {
+                message += request.body;
+            }
+
+            return message;
+        }
+
+        function sendRequest(request) {
+            const message = buildSipMessage(request);
+            ws.send(message);  // ws 是你创建的 WebSocket 对象
+            log("Sent SIP request:\n" + message);
+        }
+
+        function handleSipResponse(statusCode, reasonPhrase, fullMessage) {
+            log(`SIP Response: ${statusCode} ${reasonPhrase}`);
+
+            if (statusCode >= 200 && statusCode < 300) {
+                // Success response
+                if (fullMessage.includes('CSeq:') && fullMessage.includes('REGISTER')) {
+                    log('Successfully registered with SIP server');
+                    isRegistered = true;
+                    updateStatus('Registered & Ready', 'connected');
+                    updateButtons();
+                    updateDebugInfo();
+                } else if (fullMessage.includes('CSeq:') && fullMessage.includes('INVITE')) {
+                    log('Call answered by remote party');
+                    handleCallAnswered(fullMessage);
+                }
+
+            }else if (statusCode === 401 && fullMessage.includes('WWW-Authenticate')) {
+                log("401 received, retrying REGISTER with Digest Auth");
+                const wwwAuthMatch = fullMessage.match(/WWW-Authenticate:\s*Digest\s+(.+)/i);
+                if (wwwAuthMatch) {
+                    const wwwAuth = wwwAuthMatch[1];
+                    register(true, wwwAuth);
+                } else {
+                    log("ERROR: No WWW-Authenticate header found");
+                }
+            }else if (statusCode === 407 && fullMessage.includes('Proxy-Authenticate')) {
+                log("407 received, retrying INVITE with Digest Auth");
+                const toMatch = fullMessage.match(/To:\s*<sip:([^@>]+)/i);
+                const callee = toMatch ? toMatch[1] : null;  // callee = "5000"
+
+                const proxyAuthMatch = fullMessage.match(/Proxy-Authenticate:\s*Digest\s+(.+)/i);
+                if (proxyAuthMatch) {
+                    const proxyAuth = proxyAuthMatch[1];
+
+                    // 解析 auth 参数
+                    const authParams = {};
+                    proxyAuth.split(',').forEach(kv => {
+                        const [k, v] = kv.trim().split('=');
+                        authParams[k] = v?.replace(/^"|"$/g, '');  // 去除引号
+                    });
+
+                    const realm = authParams.realm;
+                    const nonce = authParams.nonce;
+                    const qop = authParams.qop || 'auth';
+
+                    // 构造认证头
+                    const authHeader = generateDigestAuthorization({
+                        username,
+                        password,
+                        method: 'INVITE',
+                        uri: `sip:${callee}@${domain}`,  // 或用之前 INVITE 中的 URI
+                        realm,
+                        nonce,
+                        qop,
+                        nc: '00000001',
+                        cnonce: generateRandomCnonce(),  // 自定义生成函数
+                    });
+                    log('We have localSdp: ' + localSdp.toString() + '\nTrying to re-send INVITE with Proxy-Authorization');
+
+                    const invite = createInviteRequest(callee,domain,localSdp);  // 创建新的 INVITE 请求
+                    invite.headers['Proxy-Authorization'] = authHeader;
+
+                    sendRequest(invite);
+                } else {
+                    log("ERROR: No Proxy-Authenticate header found");
+                }
+            }
+            else if (statusCode >= 400) {
+                // Error response
+                log(`SIP Error: ${statusCode} ${reasonPhrase}`);
+                if (fullMessage.includes('REGISTER')) {
+                    updateStatus('Registration Failed', 'disconnected');
+                    isRegistered = false;
+                } else if (fullMessage.includes('INVITE')) {
+                    log('Call failed: ' + reasonPhrase);
+                    endCall();
+                }
+                updateButtons();
+                updateDebugInfo();
+            } else if (statusCode >= 100 && statusCode < 200) {
+                // Provisional response
+                if (fullMessage.includes('INVITE')) {
+                    log('Call in progress: ' + reasonPhrase);
+                    updateStatus('Calling...', 'calling');
+                }
+            }
+        }
+
+        function handleSipRequest(method, uri, fullMessage) {
+            log(`Received SIP ${method} request`);
+
+            switch (method) {
+                case 'INVITE':
+                    handleIncomingCall(fullMessage);
+                    break;
+                case 'BYE':
+                    handleCallTermination(fullMessage);
+                    break;
+                case 'ACK':
+                    log('Received ACK for call setup');
+                    break;
+                case 'OPTIONS':
+                    // Respond to OPTIONS with 200 OK
+                    respondToOptions(fullMessage);
+                    break;
+                default:
+                    log(`Unhandled SIP method: ${method}`);
+                    break;
+            }
+        }
+
+        function respondToOptions(message) {
+            // Extract Call-ID, Via, From, To, CSeq from the incoming message
+            const callIdMatch = message.match(/Call-ID:\s*(.+)/i);
+            const viaMatch = message.match(/Via:\s*(.+)/i);
+            const fromMatch = message.match(/From:\s*(.+)/i);
+            const toMatch = message.match(/To:\s*(.+)/i);
+            const cseqMatch = message.match(/CSeq:\s*(.+)/i);
+
+            if (callIdMatch && viaMatch && fromMatch && toMatch && cseqMatch) {
+                let response = `SIP/2.0 200 OK\r\n`;
+                response += `Via: ${viaMatch[1]}\r\n`;
+                response += `From: ${fromMatch[1]}\r\n`;
+                response += `To: ${toMatch[1]}\r\n`;
+                response += `Call-ID: ${callIdMatch[1]}\r\n`;
+                response += `CSeq: ${cseqMatch[1]}\r\n`;
+                response += `Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, MESSAGE, INFO, UPDATE, REGISTER\r\n`;
+                response += `Accept: application/sdp, application/dtmf-relay\r\n`;
+                response += `Content-Length: 0\r\n\r\n`;
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(response);
+                    log('Sent 200 OK response to OPTIONS');
+                }
+            }
+        }
+        async function makeCall() {
+            const callNumber = document.getElementById('callNumber').value;
+            if (!callNumber || !isRegistered) {
+                alert('Please enter a call number and ensure you are registered.');
+                return;
+            }
+            
+            updateStatus('Calling...', 'calling');
+            isInCall = true;
+            updateButtons();
+            currentCallId = generateCallId();
+            cseq++; // Increment CSeq for the new call
+            
+            peerConnection = new RTCPeerConnection(pcConfig);
+            remoteStream = new MediaStream();
+            document.getElementById('remoteAudio').srcObject = remoteStream;
+            
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            
+            peerConnection.ontrack = event => {
+                if (event.streams && event.streams[0]) {
+                    document.getElementById('remoteAudio').srcObject = event.streams[0];
+                }
+            };
+            
+            peerConnection.onicecandidate = async event => {
+                if (event.candidate) {
+                    // Still gathering candidates
+                    console.log('ICE candidate:', event.candidate);
+                } else {
+                    // ICE gathering complete - now send INVITE
+                    console.log('ICE gathering complete');
+                    const inviteRequest = createInviteRequest(callNumber, domain, localSdp);
+                    sendRequest(inviteRequest);
+                }
+            };
+            
+            try {
+                // Create offer with default options first
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: false,
+                    voiceActivityDetection: false
+                });
+                
+                // Modify SDP to include only PCMA codec
+                let modifiedSdp = offer.sdp;
+                
+                // Force only PCMA (codec 8) in the media line
+                modifiedSdp = modifiedSdp.replace(
+                    /m=audio \d+ UDP\/TLS\/RTP\/SAVPF .+/,
+                    'm=audio 9 UDP/TLS/RTP/SAVPF 8'
+                );
+                
+                // Remove all other codec rtpmap lines except PCMA
+                const lines = modifiedSdp.split('\r\n');
+                const filteredLines = lines.filter(line => {
+                    // Keep PCMA rtpmap
+                    if (line.includes('a=rtpmap:8 PCMA/8000')) return true;
+                    
+                    // Remove other codec rtpmap lines
+                    if (line.match(/a=rtpmap:\d+\s+(opus|G722|PCMU|telephone-event)/i)) return false;
+                    
+                    // Remove codec-specific fmtp lines
+                    if (line.match(/a=fmtp:(109|9|0|101)/)) return false;
+                    
+                    // Keep everything else
+                    return true;
+                });
+                
+                modifiedSdp = filteredLines.join('\r\n');
+                
+                // Ensure PCMA rtpmap line exists
+                if (!modifiedSdp.includes('a=rtpmap:8 PCMA/8000')) {
+                    const sendrecvIndex = modifiedSdp.indexOf('a=sendrecv');
+                    if (sendrecvIndex !== -1) {
+                        modifiedSdp = modifiedSdp.slice(0, sendrecvIndex) + 
+                                    'a=rtpmap:8 PCMA/8000\r\n' + 
+                                    modifiedSdp.slice(sendrecvIndex);
+                    }
+                }
+                
+                // Create new offer with modified SDP
+                const modifiedOffer = {
+                    type: 'offer',
+                    sdp: modifiedSdp
+                };
+                
+                await peerConnection.setLocalDescription(modifiedOffer);
+                localSdp = modifiedOffer.sdp;
+                
+                log('Created PCMA-only offer:\n' + localSdp);
+                
+                const inviteRequest = createInviteRequest(callNumber, domain, localSdp);
+                sendRequest(inviteRequest);
+                
+            } catch (error) {
+                log('ERROR: Failed to create PCMA-only offer: ' + error);
+                updateStatus('Call Failed', 'disconnected');
+                isInCall = false;
+                updateButtons();
+            }
+        }        
+        async function makeCall_notuse() {
+            const callNumber = document.getElementById('callNumber').value;
+            if (!callNumber || !isRegistered) {
+                alert('Please enter a call number and ensure you are registered.');
+                return;
+            }
+
+            updateStatus('Calling...', 'calling');
+            isInCall = true;
+            updateButtons();
+            currentCallId = generateCallId();
+            cseq++; // Increment CSeq for the new call
+
+            peerConnection = new RTCPeerConnection(pcConfig);
+            remoteStream = new MediaStream();
+            document.getElementById('remoteAudio').srcObject = remoteStream;
+
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = event => {
+                if (event.streams && event.streams[0]) {
+                    document.getElementById('remoteAudio').srcObject = event.streams[0];
+                }
+            };
+
+            peerConnection.onicecandidate = async event => {
+                if (event.candidate) {
+                    // You would typically send this ICE candidate to the remote peer via a signaling mechanism
+                    log('Local ICE candidate: ' + JSON.stringify(event.candidate));
+                }
+            };
+
+            try {
+                // Define offer options to specify desired media types and codecs
+                // const offerOptions = {
+                //     offerToReceiveAudio: true,
+                //     offerToReceiveVideo: false,
+                //     voiceActivityDetection: false,
+                //     sdpOffer: {
+                //         audio: {
+                //             codecs: [
+                //                 { mimeType: 'audio/PCMU', clockRate: 8000 },
+                //                 { mimeType: 'audio/PCMA', clockRate: 8000 }
+                //             ]
+                //         },
+                //         video: false // Ensure no video is offered
+                //     }
+                // };
+                const offerOptions = {
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: false,
+                    voiceActivityDetection: false,
+                    iceTransportPolicy: 'all',
+                    sdpOffer: {
+                        audio: {
+                            codecs: [
+                                // { mimeType: 'audio/PCMU', clockRate: 8000 },
+                                { mimeType: 'audio/PCMA', clockRate: 8000 }
+                            ]
+                        },
+                        video: false
+                    }
+                };
+                const offer = await peerConnection.createOffer(offerOptions);
+                await peerConnection.setLocalDescription(offer);
+                localSdp = offer.sdp; // Now localSdp contains the simplified offer
+
+                log('Created simplified offer:\n' + localSdp);
+
+                const inviteRequest = createInviteRequest(callNumber, domain, localSdp);
+                sendRequest(inviteRequest);
+
+            } catch (error) {
+                log('ERROR: Failed to create simplified offer: ' + error);
+                updateStatus('Call Failed', 'disconnected');
+                isInCall = false;
+                updateButtons();
+            }
+        }
+        async function makeCall_tolong() {
+            const number = document.getElementById('callNumber').value.trim();
+            if (!number) {
+                alert('Please enter a number to call');
+                return;
+            }
+
+            if (!isRegistered) {
+                alert('Not registered with SIP server');
+                return;
+            }
+
+            log('Initiating call to: ' + number);
+            updateStatus('Setting up call...', 'calling');
+            isInCall = true;
+            updateButtons();
+
+            try {
+                // Create peer connection
+                peerConnection = new RTCPeerConnection(pcConfig);
+                
+                // Add local stream
+                if (localStream) {
+                    localStream.getTracks().forEach(track => {
+                        peerConnection.addTrack(track, localStream);
+                        log('Added local track: ' + track.kind);
+                    });
+                }
+
+                // Handle remote stream
+                peerConnection.ontrack = function(event) {
+                    log('Received remote stream');
+                    if (event.streams && event.streams[0]) {
+                        remoteStream = event.streams[0];
+                        document.getElementById('remoteAudio').srcObject = remoteStream;
+                        updateStatus('Call Connected', 'connected');
+                    }
+                };
+
+                // Handle ICE candidates
+                peerConnection.onicecandidate = function(event) {
+                    if (event.candidate) {
+                        log('ICE candidate generated');
+                    } else {
+                        log('ICE gathering complete');
+                    }
+                };
+
+                // Create offer
+                log('Creating call offer...');
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: false
+                });
+                
+                await peerConnection.setLocalDescription(offer);
+                localSdp = offer.sdp; // Now localSdp is set
+                // Wait for ICE gathering
+                await new Promise((resolve) => {
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        const timeout = setTimeout(resolve, 3000);
+                        peerConnection.addEventListener('icegatheringstatechange', () => {
+                            if (peerConnection.iceGatheringState === 'complete') {
+                                clearTimeout(timeout);
+                                resolve();
+                            }
+                        });
+                    }
+                });
+
+                // Send INVITE with SDP
+                remoteUri = `sip:${number}@${domain}`;
+                currentCallId = generateCallId();
+                updateDebugInfo();
+
+                const sdp = peerConnection.localDescription.sdp;
+                const headers = {
+                    'Call-ID': currentCallId,
+                    'Contact': `<sip:${username}@${domain};transport=ws>`
+                };
+
+                sendSipMessage('INVITE', remoteUri, headers, sdp);
+                updateStatus('Calling ' + number + '...', 'calling');
+
+            } catch (error) {
+                log('ERROR: Call setup failed: ' + error);
+                endCall();
+            }
+        }
+
+        async function handleIncomingCall(message) {
+            // Extract caller information and SDP
+            const fromMatch = message.match(/From:\s*.*<sip:([^@]+)@/i);
+            const callIdMatch = message.match(/Call-ID:\s*(.+)/i);
+            const sdpMatch = message.match(/\r\n\r\n(v=0[\s\S]*)/);
+
+            const caller = fromMatch ? fromMatch[1] : 'Unknown';
+            currentCallId = callIdMatch ? callIdMatch[1].trim() : null;
+
+            log('Incoming call from: ' + caller);
+            
+            if (confirm('Incoming call from ' + caller + '. Answer?')) {
+                try {
+                    isInCall = true;
+                    updateStatus('Answering call...', 'calling');
+                    updateButtons();
+                    updateDebugInfo();
+
+                    // Create peer connection
+                    peerConnection = new RTCPeerConnection(pcConfig);
+                    
+                    // Add local stream
+                    if (localStream) {
+                        localStream.getTracks().forEach(track => {
+                            peerConnection.addTrack(track, localStream);
+                        });
+                    }
+
+                    // Handle remote stream
+                    peerConnection.ontrack = function(event) {
+                        log('Received remote stream on incoming call');
+                        if (event.streams && event.streams[0]) {
+                            remoteStream = event.streams[0];
+                            document.getElementById('remoteAudio').srcObject = remoteStream;
+                            updateStatus('Call Connected', 'connected');
+                        }
+                    };
+
+                    if (sdpMatch) {
+                        // Set remote description from offer
+                        await peerConnection.setRemoteDescription({
+                            type: 'offer',
+                            sdp: sdpMatch[1]
+                        });
+
+                        // Create answer
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+
+                        // Send 200 OK with SDP answer
+                        sendSipResponse(200, 'OK', message, answer.sdp);
+                        log('Call answered successfully');
+                    }
+
+                } catch (error) {
+                    log('ERROR: Failed to answer call: ' + error);
+                    sendSipResponse(500, 'Internal Server Error', message);
+                    endCall();
+                }
+            } else {
+                // Reject the call
+                sendSipResponse(603, 'Decline', message);
+                log('Incoming call rejected');
+            }
+        }
+
+        function sendSipResponse(statusCode, reasonPhrase, originalMessage, body = '') {
+            const callIdMatch = originalMessage.match(/Call-ID:\s*(.+)/i);
+            const viaMatch = originalMessage.match(/Via:\s*(.+)/i);
+            const fromMatch = originalMessage.match(/From:\s*(.+)/i);
+            const toMatch = originalMessage.match(/To:\s*(.+)/i);
+            const cseqMatch = originalMessage.match(/CSeq:\s*(.+)/i);
+
+            if (callIdMatch && viaMatch && fromMatch && toMatch && cseqMatch) {
+                let response = `SIP/2.0 ${statusCode} ${reasonPhrase}\r\n`;
+                response += `Via: ${viaMatch[1]}\r\n`;
+                response += `From: INVITE${fromMatch[1]}\r\n`;
+                response += `To: ${toMatch[1]}\r\n`;
+                response += `Call-ID: ${callIdMatch[1]}\r\n`;
+                response += `CSeq: ${cseqMatch[1]}\r\n`;
+                response += `Contact: <sip:${username}@${domain};transport=ws>\r\n`;
+
+                if (body) {
+                    response += `Content-Type: application/sdp\r\n`;
+                    response += `Content-Length: ${body.length}\r\n`;
+                    response += `\r\n${body}`;
+                } else {
+                    response += `Content-Length: 0\r\n\r\n`;
+                }
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(response);
+                    log(`Sent ${statusCode} ${reasonPhrase} response`);
+                }
+            }
+        }
+
+        async function handleCallAnswered(message) {
+            try {
+                log('Call answered by remote party');
+                const sdpMatch = message.match(/\r\n\r\n(v=0[\s\S]*)/);
+                
+                if (peerConnection && sdpMatch) {
+                    await peerConnection.setRemoteDescription({
+                        type: 'answer',
+                        sdp: sdpMatch[1]
+                    });
+                    log('Remote description set for answered call');
+                    updateStatus('Call Connected', 'connected');
+
+                    // Send ACK
+                    const headers = {
+                        'Call-ID': currentCallId
+                    };
+                    sendSipMessage('ACK', remoteUri, headers);
+                }
+            } catch (error) {
+                log('ERROR: Failed to handle call answer: ' + error);
+                endCall();
+            }
+        }
+
+        function handleCallTermination(message) {
+            log('Call ended by remote party');
+            
+            // Send 200 OK response to BYE
+            sendSipResponse(200, 'OK', message);
+            
+            endCall();
+        }
+
+        function hangup() {
+            if (currentCallId && remoteUri) {
+                log('Hanging up call');
+                const headers = {
+                    'Call-ID': currentCallId
+                };
+                sendSipMessage('BYE', remoteUri, headers);
+            }
+            endCall();
+        }
+
+        function endCall() {
+            log('Ending call and cleaning up');
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
+
+            document.getElementById('remoteAudio').srcObject = null;
+            
+            currentCallId = null;
+            remoteUri = null;
+            isInCall = false;
+            
+            updateDebugInfo();
+            
+            if (isRegistered) {
+                updateStatus('Registered & Ready', 'connected');
+            } else if (isConnected) {
+                updateStatus('Connected', 'calling');
+            } else {
+                updateStatus('Disconnected', 'disconnected');
+            }
+            updateButtons();
+        }
+
+        function disconnect() {
+            log('Disconnecting from SIP server');
+            
+            if (isInCall) {
+                hangup();
+            }
+
+            // Send unregister
+            if (isRegistered) {
+                const uri = `sip:${domain}`;
+                const headers = {
+                    'Expires': '0',
+                    'Authorization': generateAuthHeader('REGISTER', uri)
+                };
+                sendSipMessage('REGISTER', uri, headers);
+            }
+            
+            if (registrationInterval) {
+                clearInterval(registrationInterval);
+                registrationInterval = null;
+            }
+            
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                document.getElementById('localAudio').srcObject = null;
+            }
+            
+             isConnected = false;
+            isRegistered = false;
+            sessionId = null;
+            loginAttempts = 0;
+            
+            updateStatus('Disconnected', 'disconnected');
+            updateButtons();
+            updateDebugInfo();
+            log('Disconnected from server');
+        }
+
+        // Initialize
+        log('WebRTC Softphone initialized (v2.0)');
+        updateButtons();
+        updateDebugInfo();
+    </script>
+</body>
+</html>
